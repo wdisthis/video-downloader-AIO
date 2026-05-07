@@ -4,14 +4,16 @@ import yt_dlp
 import os
 import re
 import time
+import shutil
 from urllib.parse import unquote
 import threading
 
 try:
     import static_ffmpeg
     static_ffmpeg.add_paths()
+    FFMPEG_PATH = shutil.which("ffmpeg")
 except Exception:
-    pass
+    FFMPEG_PATH = None
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
@@ -91,8 +93,9 @@ def api_download():
     
     if dtype == 'video':
         res = data.get('resolution', '720p').replace('p', '')
-        ext = data.get('format', 'mp4')
-        f_str = f'bestvideo[height<={res}][ext={ext}]+bestaudio[ext=m4a]/best[height<={res}][ext={ext}]/best'
+        # Force H.264 (avc1) and AAC (mp4a) for compatibility
+        f_str = f'bestvideo[height<={res}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/best[height<={res}][ext=mp4]/best'
+        ext = 'mp4' # Always use mp4 for video as requested
     else:
         ext = data.get('format', 'mp3')
         f_str = 'bestaudio/best'
@@ -102,7 +105,11 @@ def api_download():
         'outtmpl': os.path.join(app.config['DOWNLOAD_FOLDER'], f'{file_id}.%(ext)s'),
         'quiet': True,
         'http_headers': HEADERS,
+        'ffmpeg_location': FFMPEG_PATH,
     }
+    
+    if dtype == 'video':
+        ydl_opts['merge_output_format'] = 'mp4'
     
     if dtype == 'audio':
         ydl_opts['postprocessors'] = [{
