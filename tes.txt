@@ -1,0 +1,53 @@
+Cara Menjalankan
+
+Langkah 1: Setup Environment
+
+# 1. Buat folder project
+mkdir youtube-audio-dl
+cd youtube-audio-dl
+
+# 2. Buat virtual environment (Python 3.6+)
+python -m venv venv
+
+# 3. Aktifkan virtual environment
+# Windows:
+venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+
+# 4. Install dependencies
+pip install flask flask-cors yt-dlp
+
+# 5. Buat file requirements.txt
+pip freeze > requirements.txt
+
+==============================================
+
+Langkah 2: Setup File Struktur
+
+# Buat folder dan file
+mkdir static templates downloads
+
+# Buat file app.py
+# Copy kode Python di atas ke app.py
+
+# Buat file index.html di templates/
+# Copy kode HTML di atas ke templates/index.html
+
+# Buat file style.css di static/ (opsional)
+touch static/style.css
+
+
+=================================================
+
+Langkah 3: Jalankan Aplikasi
+# Pastikan virtual environment aktif
+# Windows: venv\Scripts\activate
+# Linux/Mac: source venv/bin/activate
+
+# Jalankan Flask
+python app.py
+
+# Atau dengan debug mode
+export FLASK_ENV=development
+python app.py

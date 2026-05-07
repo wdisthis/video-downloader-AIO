@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>YouTube Downloader - Workspace</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="workspace">
+        <aside class="panel rail">
+            <div class="rail-item active" onclick="switchView('main')"><i class="fas fa-terminal"></i></div>
+            <div class="rail-item" onclick="switchView('files')"><i class="fas fa-folder-tree"></i></div>
+            <div class="rail-item" onclick="switchView('config')"><i class="fas fa-sliders"></i></div>
+        </aside>
+
+        <section class="panel" style="grid-column: 2;">
+            <div class="panel-header">
+                <h3>PRIMARY CONSOLE</h3>
+                <div><span class="led led-on"></span> SYSTEM ACTIVE</div>
+            </div>
+            <div class="main-content">
+                <div class="command-bar">
+                    <input type="text" id="urlInput" class="input-dense" placeholder="Enter YouTube URL (Batch mode active)...">
+                    <button id="getInfoBtn" class="btn-dense">ANALYZE</button>
+                </div>
+
+                <div id="videoMetaArea" class="hidden">
+                    <div class="info-grid">
+                        <div class="meta-card">
+                            <img id="thumbImg" src="">
+                            <h4 id="vidTitle" style="font-size: 14px; margin-bottom: 5px;">Title</h4>
+                            <p id="vidAuthor" style="color: var(--text-dim); font-size: 11px;">Author</p>
+                            <hr style="border: none; border-top: 1px solid var(--border); margin: 10px 0;">
+                            <div class="type-tabs" style="display: flex; gap: 5px;">
+                                <button onclick="setType('audio')" id="t-audio" class="btn-dense" style="flex:1; padding: 5px; font-size: 10px;">AUDIO</button>
+                                <button onclick="setType('video')" id="t-video" class="btn-dense" style="flex:1; padding: 5px; font-size: 10px; background: var(--bg-inner); border: 1px solid var(--border);">VIDEO</button>
+                            </div>
+                        </div>
+                        <div class="meta-card">
+                            <table class="tech-table">
+                                <thead><tr><th>EXT</th><th>RES</th><th>CODEC</th><th>SIZE</th></tr></thead>
+                                <tbody id="formatTable"></tbody>
+                            </table>
+                            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                                <select id="resSelect" class="input-dense" style="padding: 5px;"></select>
+                                <button id="dlBtn" class="btn-dense" style="background: #00ff88; color: #000;">DOWNLOAD</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="fileView" class="hidden">
+                    <table class="tech-table">
+                        <thead><tr><th>FILE NAME</th><th>SIZE</th><th>DATE</th></tr></thead>
+                        <tbody id="fileTable"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <aside class="utility-pane">
+            <div class="sub-panel">
+                <div class="panel-header"><h3>ACTIVE QUEUE</h3></div>
+                <div id="queueList" style="padding: 10px;"></div>
+            </div>
+            <div class="sub-panel" style="height: 250px; flex: none;">
+                <div class="panel-header"><h3>TERMINAL LOG</h3></div>
+                <div id="logTerm" class="terminal"></div>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        let mode = 'audio';
+        function log(msg, type='') {
+            const l = document.getElementById('logTerm');
+            l.innerHTML += `<div class="terminal-line ${type}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+            l.scrollTop = l.scrollHeight;
+        }
+
+        function setType(t) {
+            mode = t;
+            document.getElementById('t-audio').style.background = t === 'audio' ? 'var(--primary)' : 'var(--bg-inner)';
+            document.getElementById('t-video').style.background = t === 'video' ? 'var(--primary)' : 'var(--bg-inner)';
+        }
+
+        async function getInfo() {
+            const url = document.getElementById('urlInput').value;
+            if(!url) return;
+            log(`Analyzing: ${url}`, 'cmd');
+            const res = await fetch('/api/info', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url})
+            });
+            const data = await res.json();
+            if(data.success) {
+                document.getElementById('vidTitle').innerText = data.title;
+                document.getElementById('vidAuthor').innerText = data.author;
+                document.getElementById('thumbImg').src = data.thumbnail;
+                document.getElementById('formatTable').innerHTML = data.formats_table.map(f => `
+                    <tr><td>${f.ext}</td><td>${f.res}</td><td>${f.vcodec || f.acodec}</td><td>${f.filesize ? (f.filesize/(1024*1024)).toFixed(1)+'M' : '-'}</td></tr>
+                `).join('');
+                const rs = document.getElementById('resSelect');
+                rs.innerHTML = data.available_resolutions.map(r => `<option value="${r}">${r}</option>`).join('');
+                document.getElementById('videoMetaArea').classList.remove('hidden');
+                log(`Metadata received: ${data.title}`);
+            }
+        }
+
+        async function startDL() {
+            const url = document.getElementById('urlInput').value;
+            const q = document.getElementById('queueList');
+            const id = 'q-' + Date.now();
+            q.innerHTML += `<div id="${id}" class="queue-item">${url.substring(0,30)}...<div class="progress-mini"><div class="progress-fill" style="width:20%"></div></div></div>`;
+            log(`Starting download: ${url}`, 'cmd');
+            
+            const res = await fetch('/api/download', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url, type: mode, resolution: document.getElementById('resSelect').value})
+            });
+            const data = await res.json();
+            if(data.success) {
+                document.getElementById(id).querySelector('.progress-fill').style.width = '100%';
+                log(`Completed: ${data.filename}`);
+                setTimeout(() => window.location.href = data.download_url, 1000);
+            }
+        }
+
+        function switchView(v) {
+            document.getElementById('videoMetaArea').classList.add('hidden');
+            document.getElementById('fileView').classList.add('hidden');
+            if(v === 'files') {
+                document.getElementById('fileView').classList.remove('hidden');
+                refreshFiles();
+            } else {
+                document.getElementById('videoMetaArea').classList.remove('hidden');
+            }
+        }
+
+        async function refreshFiles() {
+            const res = await fetch('/api/files');
+            const data = await res.json();
+            document.getElementById('fileTable').innerHTML = data.map(f => `
+                <tr><td>${f.name}</td><td>${f.size}</td><td>${f.time}</td></tr>
+            `).join('');
+        }
+
+        document.getElementById('getInfoBtn').onclick = getInfo;
+        document.getElementById('dlBtn').onclick = startDL;
+        log('Workspace initialized. Waiting for input...');
+    </script>
+</body>
+</html>
