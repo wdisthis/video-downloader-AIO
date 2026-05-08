@@ -21,7 +21,7 @@
             </div>
             <div class="main-content">
                 <div class="command-bar">
-                    <input type="text" id="urlInput" class="input-dense" placeholder="Enter YouTube URL (Batch mode active)...">
+                    <input type="text" id="urlInput" class="input-dense" placeholder="Paste YouTube or Instagram Reel URL...">
                     <button id="getInfoBtn" class="btn-dense">ANALYZE</button>
                 </div>
 
@@ -42,9 +42,25 @@
                                 <thead><tr><th>EXT</th><th>RES</th><th>CODEC</th><th>SIZE</th></tr></thead>
                                 <tbody id="formatTable"></tbody>
                             </table>
-                            <div style="margin-top: 15px; display: flex; gap: 10px;">
-                                <select id="resSelect" class="input-dense" style="padding: 5px;"></select>
-                                <button id="dlBtn" class="btn-dense" style="background: #00ff88; color: #000;">DOWNLOAD</button>
+                            <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
+                                <div id="videoOptions" class="hidden" style="display: flex; gap: 10px; width: 100%;">
+                                    <select id="resSelect" class="input-dense" style="padding: 5px; flex: 1;"></select>
+                                </div>
+                                <div id="audioOptions" style="display: flex; gap: 10px; width: 100%;">
+                                    <select id="audioFormat" class="input-dense" style="padding: 5px; flex: 1;">
+                                        <option value="mp3">MP3</option>
+                                        <option value="m4a">M4A</option>
+                                        <option value="wav">WAV</option>
+                                        <option value="flac">FLAC</option>
+                                    </select>
+                                    <select id="audioQuality" class="input-dense" style="padding: 5px; flex: 1;">
+                                        <option value="320">320K</option>
+                                        <option value="256">256K</option>
+                                        <option value="192" selected>192K</option>
+                                        <option value="128">128K</option>
+                                    </select>
+                                </div>
+                                <button id="dlBtn" class="btn-dense" style="background: #00ff88; color: #000; width: 100%; height: 35px;">DOWNLOAD</button>
                             </div>
                         </div>
                     </div>
@@ -55,6 +71,29 @@
                         <thead><tr><th>FILE NAME</th><th>SIZE</th><th>DATE</th></tr></thead>
                         <tbody id="fileTable"></tbody>
                     </table>
+                </div>
+
+                <div id="configView" class="hidden">
+                    <div class="meta-card">
+                        <h4 style="margin-bottom: 15px;">SYSTEM CONFIGURATION</h4>
+                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                            <div class="config-item">
+                                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 5px;">COOKIE SOURCE (FOR PROTECTED CONTENT)</label>
+                                <select id="cookieBrowser" class="input-dense" style="width: 100%;">
+                                    <option value="none">None (Public Only)</option>
+                                    <option value="chrome">Google Chrome</option>
+                                    <option value="edge">Microsoft Edge</option>
+                                    <option value="firefox">Mozilla Firefox</option>
+                                    <option value="opera">Opera</option>
+                                </select>
+                                <p style="font-size: 10px; color: var(--text-dim); margin-top: 5px;">If Instagram/YouTube fails, select the browser where you are logged in.</p>
+                            </div>
+                            <div class="config-item">
+                                <label style="display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 5px;">WHATSAPP COMPATIBILITY</label>
+                                <div style="color: #00ff88; font-size: 11px;"><i class="fas fa-check-circle"></i> Enforced (H.264 + AAC)</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -83,16 +122,29 @@
             mode = t;
             document.getElementById('t-audio').style.background = t === 'audio' ? 'var(--primary)' : 'var(--bg-inner)';
             document.getElementById('t-video').style.background = t === 'video' ? 'var(--primary)' : 'var(--bg-inner)';
+            
+            if(t === 'audio') {
+                document.getElementById('audioOptions').classList.remove('hidden');
+                document.getElementById('videoOptions').classList.add('hidden');
+                document.getElementById('videoOptions').style.display = 'none';
+                document.getElementById('audioOptions').style.display = 'flex';
+            } else {
+                document.getElementById('audioOptions').classList.add('hidden');
+                document.getElementById('videoOptions').classList.remove('hidden');
+                document.getElementById('audioOptions').style.display = 'none';
+                document.getElementById('videoOptions').style.display = 'flex';
+            }
         }
 
         async function getInfo() {
             const url = document.getElementById('urlInput').value;
+            const browser = document.getElementById('cookieBrowser').value;
             if(!url) return;
             log(`Analyzing: ${url}`, 'cmd');
             const res = await fetch('/api/info', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({url})
+                body: JSON.stringify({url, browser})
             });
             const data = await res.json();
             if(data.success) {
@@ -104,8 +156,13 @@
                 `).join('');
                 const rs = document.getElementById('resSelect');
                 rs.innerHTML = data.available_resolutions.map(r => `<option value="${r}">${r}</option>`).join('');
+                
+                // Show main view if we were in config
+                switchView('main');
                 document.getElementById('videoMetaArea').classList.remove('hidden');
-                log(`Metadata received: ${data.title}`);
+                log(`Metadata received [${data.platform}]: ${data.title}`);
+            } else {
+                log(`Error: ${data.error}`, 'error');
             }
         }
 
@@ -116,10 +173,23 @@
             q.innerHTML += `<div id="${id}" class="queue-item">${url.substring(0,30)}...<div class="progress-mini"><div class="progress-fill" style="width:20%"></div></div></div>`;
             log(`Starting download: ${url}`, 'cmd');
             
+            const payload = {
+                url, 
+                type: mode,
+                browser: document.getElementById('cookieBrowser').value
+            };
+
+            if (mode === 'video') {
+                payload.resolution = document.getElementById('resSelect').value;
+            } else {
+                payload.format = document.getElementById('audioFormat').value;
+                payload.quality = document.getElementById('audioQuality').value;
+            }
+            
             const res = await fetch('/api/download', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({url, type: mode, resolution: document.getElementById('resSelect').value})
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if(data.success) {
@@ -132,11 +202,20 @@
         function switchView(v) {
             document.getElementById('videoMetaArea').classList.add('hidden');
             document.getElementById('fileView').classList.add('hidden');
+            document.getElementById('configView').classList.add('hidden');
+            
+            document.querySelectorAll('.rail-item').forEach(i => i.classList.remove('active'));
+            
             if(v === 'files') {
                 document.getElementById('fileView').classList.remove('hidden');
+                document.querySelector('[onclick="switchView(\'files\')"]').classList.add('active');
                 refreshFiles();
+            } else if(v === 'config') {
+                document.getElementById('configView').classList.remove('hidden');
+                document.querySelector('[onclick="switchView(\'config\')"]').classList.add('active');
             } else {
                 document.getElementById('videoMetaArea').classList.remove('hidden');
+                document.querySelector('[onclick="switchView(\'main\')"]').classList.add('active');
             }
         }
 
