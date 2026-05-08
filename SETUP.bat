@@ -38,7 +38,7 @@ if not exist templates mkdir templates
 echo.
 echo ===========================================
 echo    SETUP COMPLETE!
-echo    Run 'RUN_APP.bat' to start the program.
+echo    Run 'START_APP.bat' to start the program.
 echo ===========================================
 echo.
 pause

@@ -33,6 +33,39 @@ def clean_filename(filename):
     cleaned = re.sub(r'[<>:"/\\|?*]', '', filename)
     return cleaned[:100].strip()
 
+def transcode_for_whatsapp(input_path, output_path):
+    if not FFMPEG_PATH:
+        return False
+    
+    # Strictly enforce H.264 and AAC without limiting FPS or resolution
+    cmd = [
+        FFMPEG_PATH,
+        "-y",
+        "-i", input_path,
+        "-c:v", "libx264",
+        "-profile:v", "high",
+        "-level", "4.1",
+        "-pix_fmt", "yuv420p",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-ar", "44100",
+        "-ac", "2",
+        "-b:a", "128k",
+        "-movflags", "+faststart",
+        output_path
+    ]
+    
+    try:
+        import subprocess
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"FFmpeg Error: {result.stderr}")
+        return result.returncode == 0
+    except Exception as e:
+        print(f"Transcode Exception: {e}")
+        return False
+
 def get_media_info(url, cookie_browser=None):
     ydl_opts = {
         'quiet': True,
@@ -139,21 +172,6 @@ def api_download():
         'quiet': True,
         'http_headers': HEADERS,
         'ffmpeg_location': FFMPEG_PATH,
-        # Force specific codecs and metadata for WhatsApp
-        'postprocessor_args': {
-            'FFmpegVideoConvertor': [
-                '-c:v', 'libx264',
-                '-profile:v', 'main',
-                '-level', '3.1',
-                '-pix_fmt', 'yuv420p',
-                '-c:a', 'aac',
-                '-movflags', '+faststart'
-            ],
-            'FFmpegExtractAudio': [
-                '-c:a', 'libmp3lame', # If audio extraction is used
-                '-b:a', '192k'
-            ]
-        }
     }
     
     if browser and browser != 'none':
@@ -161,11 +179,6 @@ def api_download():
     
     if dtype == 'video':
         ydl_opts['merge_output_format'] = 'mp4'
-        # Ensure conversion happens even if format is already mp4
-        ydl_opts['postprocessors'] = [{
-            'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
-        }]
     
     if dtype == 'audio':
         ydl_opts['postprocessors'] = [{
@@ -179,26 +192,39 @@ def api_download():
             info = ydl.extract_info(url, download=True)
             title = clean_filename(info.get('title', 'file'))
             
-            # Check if extension changed after post-processing
-            actual_ext = ext
-            if dtype == 'audio' and ext == 'mp3':
-                actual_ext = 'mp3'
-            
-            final_name = f"{title}.{actual_ext}"
-            
-            # Find the downloaded file
+            # Find the raw downloaded file
+            raw_file = None
             for f in os.listdir(app.config['DOWNLOAD_FOLDER']):
                 if f.startswith(file_id):
-                    src = os.path.join(app.config['DOWNLOAD_FOLDER'], f)
-                    # Get the actual extension of the file found
-                    found_ext = f.split('.')[-1]
-                    dst = os.path.join(app.config['DOWNLOAD_FOLDER'], f"{title}.{found_ext}")
-                    
-                    if os.path.exists(dst): os.remove(dst)
-                    os.rename(src, dst)
-                    return jsonify({'success': True, 'filename': f"{title}.{found_ext}", 'download_url': f"/api/file/{f'{title}.{found_ext}'}"})
+                    raw_file = os.path.join(app.config['DOWNLOAD_FOLDER'], f)
+                    break
             
-            return jsonify({'success': False, 'error': 'File not found'})
+            if not raw_file:
+                return jsonify({'success': False, 'error': 'Download failed - file not found'})
+
+            final_name = f"{title}.{ext}"
+            final_path = os.path.join(app.config['DOWNLOAD_FOLDER'], final_name)
+
+            if dtype == 'video':
+                # TRANSCODE FOR WHATSAPP
+                temp_output = os.path.join(app.config['DOWNLOAD_FOLDER'], f"transcoded_{file_id}.mp4")
+                success = transcode_for_whatsapp(raw_file, temp_output)
+                
+                if success:
+                    if os.path.exists(final_path): os.remove(final_path)
+                    os.rename(temp_output, final_path)
+                    if os.path.exists(raw_file): os.remove(raw_file)
+                else:
+                    # Fallback to original if transcoding fails
+                    if os.path.exists(final_path): os.remove(final_path)
+                    os.rename(raw_file, final_path)
+            else:
+                # For audio, just rename
+                if os.path.exists(final_path): os.remove(final_path)
+                os.rename(raw_file, final_path)
+
+            return jsonify({'success': True, 'filename': final_name, 'download_url': f"/api/file/{final_name}"})
+            
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
